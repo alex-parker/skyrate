@@ -6,7 +6,8 @@ from numpy import sin, cos, arctan, sqrt, tan, pi
 import sys
 from scipy.stats import chi2
 import datetime
-from matplotlib.patches import Ellipse
+from matplotlib.patches import Ellipse, Circle
+from scipy.optimize import fmin
 
 #path2oorb = '/Users/AlexParker/Downloads/oorb-read-only/main/oorb'
 
@@ -487,18 +488,15 @@ def syn_astrom(orbv, datev, noise):
 
 
 def do_main(datev):
-    FILE = open('/Users/spica/Downloads/NH_encounters_2014-2015/nhfile.txt', 'r')
+    #FILE = open('/Users/spica/scripts/git_projects/skyrate/hst_field_orbits.txt', 'r')
+    FILE = open('/Users/spica/Downloads/NH_encounters_2014-2015/NH_2000.dat', 'r')
+
     dat = FILE.readlines()
     FILE.close()
 
     dataset = []
     for k in dat:
         k = k.strip().split()
-        #if k[0] != '44.4000' or k[1] != '0.0412':
-        #    continue
-        
-        #dataset.append(numpy.asarray(k, dtype='float'))
-        #dataset.append(numpy.asarray(k, dtype='float'))
         dataset.append(numpy.asarray(k, dtype='float'))
 
     orbv0 = []
@@ -510,6 +508,49 @@ def do_main(datev):
 
     return astrom, orbv0
 
+
+def grid( x0, aRA, aDEC, epsilon=0.04, full=False ):
+
+    dx = math.sqrt(3) * epsilon
+    dy = 1.5 * epsilon
+
+    dD, dR, theta = x0[0]
+
+    if dR > dx or dD > dy:
+        return 1E9
+        
+    sRA  = math.cos(theta)*aRA - math.sin(theta)*aDEC
+    sDEC = math.sin(theta)*aRA + math.cos(theta)*aDEC
+        
+    minD, maxD = min(sDEC)-1.0, max(sDEC)+1.0
+    minR, maxR = min(sRA)-1.0, max(sRA)+1.0
+        
+    xg1 = numpy.arange(minR, maxR, dx )
+    xg2 = numpy.arange(minR + 0.5*dx, maxR+0.5*dx, dx )
+
+    yg1 = numpy.arange(minD, maxD, 2.0*dy)
+    yg2 = numpy.arange(minD + dy, maxD + dy, 2.0*dy)
+
+    X1, Y1 = numpy.meshgrid( xg1, yg1 )
+    X2, Y2 = numpy.meshgrid( xg2, yg2 )
+
+    X = numpy.append( X1.ravel(), X2.ravel() )
+    Y = numpy.append( Y1.ravel(), Y2.ravel() )
+
+    count = 0
+    Xk, Yk = [],[]
+    for i in range(0, len(X)):
+        r = (X[i]-sRA)**2 + (Y[i]-sDEC)**2
+        ok = numpy.sum( r <= epsilon**2)
+        if ok > 0:
+            count += 1
+            Xk.append( X[i]*math.cos(-theta) - Y[i]*math.sin(-theta) )
+            Yk.append( X[i]*math.sin(-theta) + Y[i]*math.cos(-theta) )
+    if full:
+        return count, Xk, Yk
+    else:
+        return count    
+    
 
 def opt_rates( astrom, dates, orbits ):
 
@@ -574,69 +615,107 @@ def opt_rates( astrom, dates, orbits ):
         
         #RA0, DEC0 = float(astrom[i][0][0]), float(astrom[i][0][1])
         shiftRA, shiftDEC = [],[]
-        for j in range(1, len(datev)):
-            if abs( datev[j] - datev[j-1] ) > 2.0E-2:
-                ### skip if longer than an orbit between
-                continue
-            RA, DEC = float(astrom[i][j][0]), float(astrom[i][j][1])
-            RA0, DEC0 = float(astrom[i][j-1][0]), float(astrom[i][j-1][1])
+        #for j in range(1, len(datev)):
+        #    if abs( datev[j] - datev[j-1] ) > 2.0E-2:
+        #        ### skip if longer than an orbit between
+        #        continue
+        if 0 == 0:
+            RA, DEC = float(astrom[i][1][0]), float(astrom[i][1][1])
+            #print RA, DEC
+            RA0, DEC0 = float(astrom[i][0][0]), float(astrom[i][0][1])
             #print RA0, DEC0, RA, DEC
-            dRA, dDEC = math.cos( DEC0 * math.pi / 180.0 ) * (RA - RA0), (DEC - DEC0)
-            shiftRA.append( dRA )
-            shiftDEC.append( dDEC )
-        #print len(shiftRA), len(datev)
-        sRA.append( shiftRA )
-        sDEC.append( shiftDEC )
+            dRA, dDEC = math.cos( DEC0 * math.pi / 180.0 ) * (RA - RA0), (DEC - DEC0) ### delta-degrees?
+            #shiftRA.append( dRA )
+            #shiftDEC.append( dDEC )
+            #print len(shiftRA), len(datev)
+            sRA.append( dRA )
+            sDEC.append( dDEC )
+    print datev[0] - datev[1]
 
-    sRA, sDEC = numpy.asarray( sRA ), numpy.asarray( sDEC )
-    dv = []
-    for i in range(0, len(sRA)):
-        deltaRA  = ( sRA - sRA[i] )**2
-        deltaDEC = ( sDEC - sDEC[i] )**2
+    sRA, sDEC = numpy.asarray( sRA )*3600.0, numpy.asarray( sDEC )*3600.0
+
+    print math.sqrt( (max(sRA) - min(sRA))**2 + (max(sDEC) - min(sDEC))**2 )
+        
+    #dv = []
+    #for i in range(0, len(sRA)):
+    #    deltaRA  = ( sRA - sRA[i] )**2
+    #    deltaDEC = ( sDEC - sDEC[i] )**2
          
-        delta = numpy.percentile( numpy.sqrt( numpy.mean( deltaRA + deltaDEC, axis=1 )), 95 )
-        #delta = numpy.mean( numpy.sqrt( numpy.mean( deltaRA + deltaDEC, axis=1 )))
+    #    delta = numpy.percentile( numpy.sqrt( numpy.mean( deltaRA + deltaDEC, axis=1 )), 95 )
 
-        dv.append( delta )
-        c.append( delta )
+    #    dv.append( delta )
+    #    c.append( delta )
 
-
+    epsilon = 0.04
+    dx = math.sqrt(3) * epsilon
+    dy = 1.5 * epsilon
     
-        
+    xg1 = numpy.arange(min(sRA), max(sRA), dx )
+    xg2 = numpy.arange(min(sRA)+0.5*dx, max(sRA)+0.5*dx, dx )
+
+    yg1 = numpy.arange(min(sDEC), max(sDEC), 2.0*dy)
+    yg2 = numpy.arange(min(sDEC) + dy, max(sDEC) + dy, 2.0*dy)
+
+    X1, Y1 = numpy.meshgrid( xg1, yg1 )
+    X2, Y2 = numpy.meshgrid( xg2, yg2 )
+
+    X = numpy.append( X1.ravel(), X2.ravel() )
+    Y = numpy.append( Y1.ravel(), Y2.ravel() )
+
+    print len(X)
+    x0 = [0.01, 0.01, 0.1]
+    x1 = fmin( grid, x0, args=(sRA, sDEC,))
+    
+    count, Xo, Yo = grid( x1, sRA, sDEC, epsilon=0.04, full=True )
+
     pylab.ion()
-    #pylab.scatter( (dx1-dx2)*180.0 *3600.0/ (math.pi),(dy1-dy2)*180.0 *3600.0/ (math.pi), c=c )
-    r = numpy.sqrt( ( (dx1-dx2)*180.0 *3600.0/ (math.pi))**2 + ( (dy1-dy2)*180.0 *3600.0/ (math.pi))**2 )
-    r2 = numpy.sqrt( ( (dx1)*180.0 *3600.0/ (math.pi))**2 + ( (dy1)*180.0*3600.0/ (math.pi))**2 )
+    fig = pylab.figure(figsize=(8,8))
+    ax = fig.add_subplot(111, aspect='equal')
 
-    pylab.scatter( r, r2, c=c )
-    pylab.scatter( [r[ numpy.argmin( r ) ]], [r2[ numpy.argmin( r ) ]], s=100 )
-    pylab.draw()
-    pylab.draw()
-
-    print numpy.argmin( r )
-    print numpy.asarray(orbits)[ numpy.argmin( r ) ]
-    print dx1[ numpy.argmin( r ) ]*180.0 *3600.0/ (math.pi), dy1[ numpy.argmin( r ) ]*180.0 *3600.0/ (math.pi)
+    pylab.hexbin( sRA, sDEC, bins='log', cmap=pylab.cm.binary,
+                  gridsize=(100,100), extent=(numpy.median(sRA)-0.6, numpy.median(sRA)+0.6,
+                                              numpy.median(sDEC)-0.6, numpy.median(sDEC)+0.6) )
+    ax.scatter( Xo, Yo, color='r', s=2 )
+    for i in range(0, len(Xo)):
+        ax.add_artist( Circle( xy=(Xo[i],Yo[i]), radius=epsilon, edgecolor='r', facecolor='none') )
     
+    ax.set_xlabel(r'$\Delta\alpha$ (arcsec)')
+    ax.set_ylabel(r'$\Delta\delta$ (arcsec)')
+    
+    ax.set_xlim(numpy.median(sRA)-0.6, numpy.median(sRA)+0.6)
+    ax.set_ylim(numpy.median(sDEC)-0.6, numpy.median(sDEC)+0.6)
+     
+    #r = numpy.sqrt( ( (dx1-dx2)*180.0 *3600.0/ (math.pi))**2 + ( (dy1-dy2)*180.0 *3600.0/ (math.pi))**2 )
+    #r2 = numpy.sqrt( ( (dx1)*180.0 *3600.0/ (math.pi))**2 + ( (dy1)*180.0*3600.0/ (math.pi))**2 )
+
+    #pylab.scatter( r, r2, c=c )
+    #pylab.scatter( [r[ numpy.argmin( r ) ]], [r2[ numpy.argmin( r ) ]], s=100 )
+    pylab.draw()
+    pylab.draw()
+
+    #print numpy.argmin( r )
+    
+    #print dx1[ numpy.argmin( r ) ]*180.0 *3600.0/ (math.pi), dy1[ numpy.argmin( r ) ]*180.0 *3600.0/ (math.pi)
+
+    pylab.savefig('HST_rategrid.png')
     pause = raw_input('...')
         
-    pylab.clf()
-    pylab.hist( dt_scale * numpy.asarray( dv ) * 3600.0 / 0.04, bins=30 )
-    pylab.draw()
-    pylab.draw()
+    #pylab.clf()
+    #pylab.hist( dt_scale * numpy.asarray( dv ) * 3600.0 / 0.04, bins=30 )
+    #pylab.draw()
+    #pylab.draw()
 
-    v = numpy.asarray(orbits)[ numpy.argsort( dv ) ][0:50]
-    d, sma = [],[]
-    for k in v:
-        k = k.strip().split()
-        d.append( float( k[-1] ) )
-        sma.append( float(k[0] ) )
+    #v = numpy.asarray(orbits)[ numpy.argsort( dv ) ][0:50]
+    #d, sma = [],[]
+    #for k in v:
+    #    k = k.strip().split()
+    #    d.append( float( k[-1] ) )
+    #    sma.append( float(k[0] ) )
 
-    print min(d), max(d)
-    print min(sma), max(sma)
-    
-    #print dt_scale * min(dv) * 3600.0 / 0.04, numpy.argmin( dv )
-    #print dv[912] * 3600.0 / 0.04, dv[958] * 3600.0 / 0.04
-    pause = raw_input('...')
+    #print min(d), max(d)
+    #print min(sma), max(sma)
+
+    #pause = raw_input('...')
     return 0
         
 
@@ -654,7 +733,8 @@ if __name__ == '__main__':
 
     ### April 15, May 15, June 15
     arc_length = 6.655005404180865E-02  ### days
-    t0 = 2456839.500000 - 2400000.5
+    #t0 = 2456839.500000 - 2400000.5
+    t0 = 2456792.51981 - 2400000.5
 
     if os.path.isfile('./DATES'):
         handle_dates = open('./DATES', 'r')
@@ -668,8 +748,7 @@ if __name__ == '__main__':
         print 't0 + %s'%( float( dlines[0].strip()) )
         print delta_t
     else:
-        delta_t = [ 0 ] #, 3.0 * arc_length ]
-
+        delta_t = [0]
 
     datev = []
 
